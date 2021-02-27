@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fight_report/Common/AppBackgroundPage.dart';
@@ -142,6 +143,14 @@ class _MainViewState extends State<MainView> {
       'date' : formatted,
       'quotePoint' : quotePoint,
       'quoteTicket' : quoteTicket,
+      'sumPoint' : 0,
+      'sumRemainingPoint' : 0,
+      'sumConsumedTicket' : 0,
+      'sumRemainingTicket' : 0,
+      'sumIncompleteTicket' : 0,
+      'necessaryPoint' : '0.0', //double型はSQLite対応してないのでStringとして持つ
+      'necessaryPointBP' : '0.0', //double型はSQLite対応してないのでStringとして持つ
+      //'playerDataList' : null, //これは↓でupdateするので不要
     };
     final id = await dh.insert( dh.reportData, rowReportData );
     //追加したIDをGuildFestReportListのテーブルの０番目に追加する
@@ -166,7 +175,7 @@ class _MainViewState extends State<MainView> {
     setState(() {});
   }
 
-  void _duplicateReportDataItem( List<ReportData> rdl, int index ){
+  void _duplicateReportDataItem( List<ReportData> rdl, int index ) async{
 
     //新しいFightDataを作成する
     int quotePoint, quoteTicket;
@@ -182,26 +191,108 @@ class _MainViewState extends State<MainView> {
       quoteTicket = 11;
     }
     DateTime date = new DateTime.now();
+
+    //##########SQLiteの操作関連ここから################
     final ReportData newReportData = ReportData( text, date, quotePoint, quoteTicket );
-    dm.addReportData(newReportData);
+    dm.addReportData(newReportData); //SQL完了時に削除
+    final _dateFormatter = DateFormat("yyyy-MM-dd");
+    var formatted = _dateFormatter.format(date); // DateTimeからStringに変換
+    Map<String, dynamic> rowReportData = {
+      'reportTitle' : text,
+      'date' : formatted,
+      'quotePoint' : quotePoint,
+      'quoteTicket' : quoteTicket,
+      'sumPoint' : 0,
+      'sumRemainingPoint' : 0,
+      'sumConsumedTicket' : 0,
+      'sumRemainingTicket' : 0,
+      'sumIncompleteTicket' : 0,
+      'necessaryPoint' : '0.0', //double型はSQLite対応してないのでStringとして持つ
+      'necessaryPointBP' : '0.0', //double型はSQLite対応してないのでStringとして持つ
+      //'playerDataList' : null, //これは↓でupdateするので不要
+    };
+    final reportId = await dh.insert( dh.reportData, rowReportData );
+    //追加したIDをGuildFestReportListのテーブルの０番目に追加する
+    List<int> reportList;
+    List<Map<String, dynamic>> tempListMap = await dh.queryAllRows( dh.guildFestReportList );
+    var reportUint8List = tempListMap.first['reportDataList'];
+    if( reportUint8List == null ){
+      reportList = [];
+    } else {
+      reportList = List.from( reportUint8List );
+    }
+    reportList.insert( 0, reportId );
+    Map<String, dynamic> rowGFReportList = {
+      'id' : 1,  // idは必ず1でデータも1つのみでOK
+      'reportDataList' : Uint8List.fromList( reportList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+    };
+    dh.update( dh.guildFestReportList, rowGFReportList );
+    //##########SQLiteの操作関連ここまで################
 
     //プレイヤー名をコピーする処理
     //rklにはすでにコピーが追加されているので、index -> index+1　となることに注意
     String playerName;
+    List<int> playerList = [];
     for( int i=0; i<rdl[index+1].playerDataList.length; i++ ){
       //プレイヤー追加の処理　プレイヤー名をコピーする
       playerName = rdl[index+1].playerDataList[i].playerName;
       quoteTicket = rdl[index+1].quoteTicket;
+
+      //##########SQLiteの操作関連ここから################
       final PlayerData newPlayerData = PlayerData( playerName, quoteTicket );
+      Map<String, dynamic> rowPlayerData = {
+        'playerName' : playerName,
+        'consumedTicket' : 0,
+        'remainingTicket' : quoteTicket,
+        'incompleteTicket' : 0,
+        'getPoint' : 0,
+        //'bonusQuest' : '', //bonusQuestは↓でupdateするので不要
+        //'isBonusQuestComplete' : null, //初期値nullでいいので敢えて書かない
+        //'questDataList' : '', //questDataLitも↓でupdateするので不要
+      };
+      final playerId = await dh.insert( dh.playerData, rowPlayerData );
+      //追加したIDをReportDataのテーブルのplayerDataListに追加するためのList<int> = BLOB を作っておく
+      playerList.add( playerId );
+
+      List<String> bonusQuestList = [];
+      String bonusQuestListJason;
       for( int i=0; i<3; i++ ){
-        newPlayerData.bonusQuest.add('');
+        newPlayerData.bonusQuest.add(''); //SQL完了時に削除
+        bonusQuestList.add('');
       }
+      bonusQuestListJason = jsonEncode( bonusQuestList ); //List<String>はSQLite対応していないのでjson形式(String)で保存する
+      rowPlayerData = {
+        'id' : playerId,
+        'bonusQuest' : bonusQuestListJason,
+      };
+      dh.update( dh.playerData, rowPlayerData );
+
+      List<int> questList = [];
       for( int i=0; i<quoteTicket; i++ ){
         final QuestData newQuestData = QuestData();
         newPlayerData.questDataList.add( newQuestData );
+        Map<String, dynamic> rowQuestData = {
+          'questPoint' : 0,
+          'questName' : '',
+          //'isCompleted' : null, //これは初期値nullなので敢えて書かない
+        };
+        final questId = await dh.insert( dh.questData, rowQuestData );
+        questList.add( questId );
       }
+      rowPlayerData = {
+        'id' : playerId,
+        'questDataList' : Uint8List.fromList( questList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+      };
+      dh.update( dh.playerData, rowPlayerData );
+
       newReportData.playerDataList.add(newPlayerData);
     }
+    //追加したplayerIDのリストをReportDataのテーブルのplayerDataListに追加する
+    rowReportData = {
+      'id' : reportId,
+      'playerDataList' : null,
+    };
+    dh.update( dh.reportData, rowReportData );
 
   }
 
@@ -290,16 +381,26 @@ class _MainViewState extends State<MainView> {
                         children: [
 
                           /////////////////////////デバッグ用///////////////////////////////
-                          FlatButton(
-                              onPressed: ()async{
-                                dh.delete(dh.guildFestReportList);
-                                dh.delete(dh.reportData);
-                                List<Map<String, dynamic>> tempListMap1 = await dh.queryAllRows( dh.guildFestReportList );
-                                List<Map<String, dynamic>> tempListMap2 = await dh.queryAllRows( dh.reportData );
-                                print( 'GuildFestReportList : ${tempListMap1.length}' );
-                                print( 'ReportData : ${tempListMap2.length}' );
-                              },
-                              child: Text('delete'),
+                          Row(
+                            children: [
+                              FlatButton(
+                                onPressed: ()async{
+                                  //print( await dh.queryAllRows(dh.guildFestReportList) );
+                                  //print( await dh.queryAllRows(dh.reportData) );
+                                  //print( await dh.queryAllRows(dh.playerData) );
+                                },
+                                child: Text('check'),
+                              ),
+                              FlatButton(
+                                  onPressed: ()async{
+                                    dh.delete(dh.guildFestReportList);
+                                    dh.delete(dh.reportData);
+                                    dh.delete(dh.playerData);
+                                    dh.delete(dh.questData);
+                                  },
+                                  child: Text('delete'),
+                              ),
+                            ],
                           ),
                           ////////////////////////////////////////////////////////
 

@@ -114,6 +114,19 @@ class DatabaseHelper {
     return await db.query(table); //全件取得
   }
 
+  // １件取得
+  Future<Map<String, dynamic>> queryOnlyRows( String table, int _id ) async{
+    Map<String, dynamic> result;
+    Database db = await instance.database; //DBにアクセスする
+    List<Map<String, dynamic>> tmp = await db.query(table);
+    for( int i=0; i<tmp.length; i++ ){
+      if( _id == tmp[i]['id'] ){
+        result = tmp[i];
+      }
+    }
+    return result;
+  }
+
   // データ件数取得
   Future<int> queryRowCount( String table ) async {
     Database db = await instance.database; //DBにアクセスする
