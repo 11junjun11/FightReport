@@ -296,9 +296,9 @@ class _MainViewState extends State<MainView> {
 
   }
 
-  void _removeReportDataItem( ReportData rd ){
+  void _removeReportDataItem( List<ReportData> rdl, int deleteIndex ){
     setState(() {
-      dm.removeReportData( rd );
+      dm.removeReportData( rdl[deleteIndex] );
       setDeleteIndex(0);
     });
   }
@@ -686,7 +686,7 @@ class _MainViewState extends State<MainView> {
           ),
           dm.guildFestReportList.length == 0
               ?  Container()
-              : _caution( dm.guildFestReportList[_deleteReportIndex] ),
+              : _caution( dm.guildFestReportList, _deleteReportIndex ),
         ],
       ),
     );
@@ -917,7 +917,7 @@ class _MainViewState extends State<MainView> {
     );
   }
 
-  Offstage _caution( ReportData rd ){
+  Offstage _caution( List<ReportData> rdl, int deleteIndex ){
     return Offstage(
       offstage: _offstageDeleteCaution,
       child: Container(
@@ -931,7 +931,7 @@ class _MainViewState extends State<MainView> {
               Column(
                 children: [
                   Text(
-                    '${def.Word().caution1[dm.language]}${rd.reportTitle}${def.Word().caution2[dm.language]}',
+                    '${def.Word().caution1[dm.language]}${rdl[deleteIndex].reportTitle}${def.Word().caution2[dm.language]}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 20,
@@ -958,7 +958,7 @@ class _MainViewState extends State<MainView> {
                     color: Colors.grey[300],
                     onPressed: () {
                       setState(() {
-                        _removeReportDataItem( rd );
+                        _removeReportDataItem( rdl, deleteIndex );
                         _offstageDeleteCaution = true;
                       });
                     },
