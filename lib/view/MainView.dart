@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fight_report/Common/AppBackgroundPage.dart';
 import 'package:fight_report/Common/DataManager.dart';
 import 'package:fight_report/view/FightDetail.dart';
@@ -14,6 +16,9 @@ class MainView extends StatefulWidget {
 }
 
 class _MainViewState extends State<MainView> {
+
+  // DataBaseHelperをインスタンス化
+  final dh = DatabaseHelper.instance;
 
   List<int> _pointItemsInt = new List.generate(251, (i)=>(1500+i*10));
   List<int> _ticketItemsInt = new List.generate(11, (i)=>(i+1));
@@ -93,7 +98,26 @@ class _MainViewState extends State<MainView> {
 
   //　Validateの後に行われる処理
   // Listに新しいFightDataが追加される処理です。
-  void _addFightDataItem(String text) {
+  void _addReportDataItem(String text) async{
+
+    //##########SQLiteの操作関連ここから################
+    //GuildFestReportListのテーブルが作成してなければ、作成する
+    //idは1固定、languageの初期値は0(日本語)、reportDataListはnull
+    int guildFestReportId;
+    Map<String, dynamic> rowGFReportList;
+    List<Map<String, dynamic>> tempListMap = await dh.queryAllRows( dh.guildFestReportList );
+    if( tempListMap.length == 0 ){
+      rowGFReportList = {
+        'id' : 1,  // idは必ず1でデータも1つのみでOK
+        'language' : 0,
+        'reportDataList' : null,  //List<int> = BLOB はUint8List形式で保存しておくこと
+      };
+      guildFestReportId = await dh.insert( dh.guildFestReportList, rowGFReportList );
+    }
+    tempListMap = await dh.queryAllRows( dh.guildFestReportList );
+    guildFestReportId = tempListMap.first['id'];
+    //##########SQLiteの操作関連ここまで################
+
     _validate = false;
     int quotePoint, quoteTicket;
     if( targetPoints != '' ){
@@ -107,19 +131,46 @@ class _MainViewState extends State<MainView> {
       quoteTicket = 11;
     }
     DateTime date = new DateTime.now();
-    final ReportData newFightData = ReportData( text, date, quotePoint, quoteTicket );
-    dm.addReportData(newFightData);
+
+    //##########SQLiteの操作関連ここから################
+    final ReportData newReportData = ReportData( text, date, quotePoint, quoteTicket );
+    dm.addReportData(newReportData); //SQL完了時に削除
+    final _dateFormatter = DateFormat("yyyy-MM-dd");
+    var formatted = _dateFormatter.format(date); // DateTimeからStringに変換
+    Map<String, dynamic> rowReportData = {
+      'reportTitle' : text,
+      'date' : formatted,
+      'quotePoint' : quotePoint,
+      'quoteTicket' : quoteTicket,
+    };
+    final id = await dh.insert( dh.reportData, rowReportData );
+    //追加したIDをGuildFestReportListのテーブルの０番目に追加する
+    List<int> reportList;
+    var reportUint8List = tempListMap.first['reportDataList'];
+    if( reportUint8List == null ){
+      reportList = [];
+    } else {
+      reportList = List.from( reportUint8List );
+    }
+    reportList.insert( 0, id );
+    rowGFReportList = {
+      'id' : 1,  // idは必ず1でデータも1つのみでOK
+      'reportDataList' : Uint8List.fromList( reportList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+    };
+    dh.update( dh.guildFestReportList, rowGFReportList );
+    //##########SQLiteの操作関連ここまで################
+
     // Controllerの内容を消去する
     eCtrl.clear();
     // SetStateを行うことによってWidgetの内容を更新
     setState(() {});
   }
 
-  void _duplicateFightDataItem( ReportData rd ){
+  void _duplicateReportDataItem( List<ReportData> rdl, int index ){
 
     //新しいFightDataを作成する
     int quotePoint, quoteTicket;
-    String text = '${rd.reportTitle} - copy';
+    String text = '${rdl[index].reportTitle} - copy';
     if( targetPoints != '' ){
       quotePoint = int.parse( _fomatInverse(targetPoints) );
     } else if( targetPoints == '' ){
@@ -136,10 +187,10 @@ class _MainViewState extends State<MainView> {
 
     //プレイヤー名をコピーする処理
     String playerName;
-    for( int i=0; i<rd.playerDataList.length; i++ ){
+    for( int i=0; i<rdl[index].playerDataList.length; i++ ){
       //プレイヤー追加の処理　プレイヤー名をコピーする
-      playerName = rd.playerDataList[i].playerName;
-      quoteTicket = rd.quoteTicket;
+      playerName = rdl[index].playerDataList[i].playerName;
+      quoteTicket = rdl[index].quoteTicket;
       final PlayerData newPlayerData = PlayerData( playerName, quoteTicket );
       for( int i=0; i<3; i++ ){
         newPlayerData.bonusQuest.add('');
@@ -153,7 +204,7 @@ class _MainViewState extends State<MainView> {
 
   }
 
-  void _removeFightDataItem( ReportData rd ){
+  void _removeReportDataItem( ReportData rd ){
     setState(() {
       dm.removeReportData( rd );
       setDeleteIndex(0);
@@ -236,6 +287,21 @@ class _MainViewState extends State<MainView> {
                     SingleChildScrollView(
                       child: Column(
                         children: [
+
+                          /////////////////////////デバッグ用///////////////////////////////
+                          FlatButton(
+                              onPressed: ()async{
+                                dh.delete(dh.guildFestReportList);
+                                dh.delete(dh.reportData);
+                                List<Map<String, dynamic>> tempListMap1 = await dh.queryAllRows( dh.guildFestReportList );
+                                List<Map<String, dynamic>> tempListMap2 = await dh.queryAllRows( dh.reportData );
+                                print( 'GuildFestReportList : ${tempListMap1.length}' );
+                                print( 'ReportData : ${tempListMap2.length}' );
+                              },
+                              child: Text('delete'),
+                          ),
+                          ////////////////////////////////////////////////////////
+
                           Container(
                             padding: EdgeInsets.only( left: 8 ),
                             child: Row(
@@ -438,7 +504,7 @@ class _MainViewState extends State<MainView> {
                                             _validate = true;
                                           });
                                         } else {
-                                          _addFightDataItem(text);
+                                          _addReportDataItem(text);
                                         }
                                       },
                                     ),
@@ -462,7 +528,7 @@ class _MainViewState extends State<MainView> {
                                       if (eCtrl.text.isEmpty) {
                                         setState(() => _validate = true);
                                       } else {
-                                        _addFightDataItem(eCtrl.text);
+                                        _addReportDataItem(eCtrl.text);
                                       }
                                     },
                                   ),
@@ -591,7 +657,7 @@ class _MainViewState extends State<MainView> {
                     onTap: () {
                       //レポートをコピーするときの処理
                       setState(() {
-                        _duplicateFightDataItem( reportDataList[index] );
+                        _duplicateReportDataItem( reportDataList, index );
                       });
                     },
                   ),
@@ -790,7 +856,7 @@ class _MainViewState extends State<MainView> {
                     color: Colors.grey[300],
                     onPressed: () {
                       setState(() {
-                        _removeFightDataItem( rd );
+                        _removeReportDataItem( rd );
                         _offstageDeleteCaution = true;
                       });
                     },

@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite/sqlite_api.dart';
+import 'package:intl/intl.dart';
 
 
 //////////////////////////////////////////////////////////////
@@ -10,13 +11,13 @@ import 'package:sqflite/sqlite_api.dart';
 //////////////////////////////////////////////////////////////
 class DatabaseHelper {
 
-  static final _databaseName = "GuildFestReport.db"; // DB名
-  static final _databaseVersion = 1; // 1で固定？
+  final _databaseName = "GuildFestReport.db"; // DB名
+  final _databaseVersion = 1; // 1で固定？
 
-  static final guildFestReportList = 'GuildFestReportList'; // テーブル名：GuildFestReportList
-  static final reportData = 'ReportData'; // テーブル名：ReportData
-  static final playerData = 'PlayerData'; // テーブル名：PlayerData
-  static final questData = 'QuestData'; // テーブル名：QuestData
+  final guildFestReportList = 'GuildFestReportList'; // テーブル名：GuildFestReportList
+  final reportData = 'ReportData'; // テーブル名：ReportData
+  final playerData = 'PlayerData'; // テーブル名：PlayerData
+  final questData = 'QuestData'; // テーブル名：QuestData
 
 
 
@@ -51,7 +52,7 @@ class DatabaseHelper {
     await db.execute("""
             CREATE TABLE $guildFestReportList
               (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER,
                 language INTEGER,
                 reportDataList BLOB
               )
@@ -128,9 +129,10 @@ class DatabaseHelper {
   }
 
   // 削除
-  Future<int> delete( String table, int id ) async {
+  Future<int> delete( String table, [ int id ] ) async {
     Database db = await instance.database;
-    return await db.delete(table, where: 'id = ?', whereArgs: [id]);
+    return await db.delete( table ); //暫定でテーブルデータをすべて削除するようにしておく。
+    //return await db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
 }
 
@@ -180,6 +182,7 @@ class ReportData {
   double necessaryPoint = 0.0;
   double necessaryPointBP = 0.0;
   List<PlayerData> playerDataList = [];
+
 
   void addPlayerData( PlayerData newPlayerData ){
     playerDataList.add(newPlayerData);
