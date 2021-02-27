@@ -124,7 +124,6 @@ class DatabaseHelper {
   Future<int> update( String table, Map<String, dynamic> row ) async {
     Database db = await instance.database; //DBにアクセスする
     int id = row['id']; //引数のマップ型のcolumnIDを取得
-    print([id]);
     return await db.update(table, row, where: 'id = ?', whereArgs: [id]);
   }
 

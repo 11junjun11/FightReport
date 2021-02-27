@@ -186,11 +186,12 @@ class _MainViewState extends State<MainView> {
     dm.addReportData(newReportData);
 
     //プレイヤー名をコピーする処理
+    //rklにはすでにコピーが追加されているので、index -> index+1　となることに注意
     String playerName;
-    for( int i=0; i<rdl[index].playerDataList.length; i++ ){
+    for( int i=0; i<rdl[index+1].playerDataList.length; i++ ){
       //プレイヤー追加の処理　プレイヤー名をコピーする
-      playerName = rdl[index].playerDataList[i].playerName;
-      quoteTicket = rdl[index].quoteTicket;
+      playerName = rdl[index+1].playerDataList[i].playerName;
+      quoteTicket = rdl[index+1].quoteTicket;
       final PlayerData newPlayerData = PlayerData( playerName, quoteTicket );
       for( int i=0; i<3; i++ ){
         newPlayerData.bonusQuest.add('');
