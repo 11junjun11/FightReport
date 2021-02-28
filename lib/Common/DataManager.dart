@@ -140,8 +140,14 @@ class DatabaseHelper {
     return await db.update(table, row, where: 'id = ?', whereArgs: [id]);
   }
 
-  // 削除
+  //テーブルとID指定して削除
   Future<int> delete( String table, [ int id ] ) async {
+    Database db = await instance.database;
+    return await db.delete(table, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // デーブル全部削除（デバッグ用）
+  Future<int> deleteAll( String table, [ int id ] ) async {
     Database db = await instance.database;
     return await db.delete( table ); //暫定でテーブルデータをすべて削除するようにしておく。
     //return await db.delete(table, where: 'id = ?', whereArgs: [id]);
@@ -181,7 +187,11 @@ class DataManager{
 
 
 class ReportData {
-  ReportData( this.reportTitle, this.date, this.quotePoint, this.quoteTicket );
+  ReportData(
+      this.reportTitle, this.date, this.quotePoint, this.quoteTicket,
+      [ this.sumPoint, this.sumRemainingPoint, this.sumConsumedTicket, this.sumRemainingTicket,
+        this.sumIncompleteTicket, this.necessaryPoint, this.necessaryPointBP, this.playerDataList, this.tempList ]
+      );
   String reportTitle;
   final DateTime date;
   int quotePoint = 0;
@@ -194,6 +204,7 @@ class ReportData {
   double necessaryPoint = 0.0;
   double necessaryPointBP = 0.0;
   List<PlayerData> playerDataList = [];
+  List<int> tempList = [];
 
 
   void addPlayerData( PlayerData newPlayerData ){
@@ -247,15 +258,18 @@ class ReportData {
 }
 
 class PlayerData {
-  PlayerData( this.playerName, this.remainingTicket );
+  PlayerData( this.playerName, this.remainingTicket, [ this.consumedTicket, this.incompleteTicket,
+    this.getPoint, this.bonusQuest, this.isBonusQuestComplete, this.questDataList, this.tempList]
+      );
   String playerName;
-  int consumedTicket = 0;
   int remainingTicket = 0;
+  int consumedTicket = 0;
   int incompleteTicket = 0;
   int getPoint = 0;
   List<String> bonusQuest = ['', '', ''];
   bool isBonusQuestComplete;
   List<QuestData> questDataList = [];
+  List<int> tempList = [];
 
   void updatePlayerData( String key, dynamic data ){
     switch(key){
@@ -295,6 +309,7 @@ class PlayerData {
 }
 
 class QuestData {
+  QuestData( [ this.questPoint, this.isCompleted, this.questName ] );
   int questPoint = 0;
   String questName = '';
   bool isCompleted;

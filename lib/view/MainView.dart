@@ -38,6 +38,21 @@ class _MainViewState extends State<MainView> {
     }
     _pointItems.insert(0, '');
     _ticketItems.insert(0, '');
+
+    //最初にデータベースがなければ作成する処理
+    Future(() async{
+      Map<String, dynamic> rowGFReportList;
+      List<Map<String, dynamic>> tempListMap = await dh.queryAllRows( dh.guildFestReportList );
+      if( tempListMap.length == 0 ){
+        rowGFReportList = {
+          'id' : 1,  // idは必ず1でデータも1つのみでOK
+          'language' : 0,
+          'reportDataList' : null,  //List<int> = BLOB はUint8List形式で保存しておくこと
+        };
+        await dh.insert( dh.guildFestReportList, rowGFReportList );
+      }
+    });
+
   }
 
   @override
@@ -95,6 +110,42 @@ class _MainViewState extends State<MainView> {
     return _result;
   }
 
+  Future<int> _getLanguage() async{
+    int language;
+    Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+    language = tmpMap['language'];
+    return language;
+  }
+
+  Future<List<ReportData>> _getReportDataItem() async{
+    //まずはレポートIDのリストを取得する
+    List<ReportData> reportDataList = [];
+    Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+    var reportDataIdUint8List = tmpMap['reportDataList'];
+    List<int> reportDataIdList = List.from( reportDataIdUint8List );
+
+    //レポートIDに紐づけられたレポートデータを取得する
+    for( int i=0; i<reportDataIdList.length; i++ ){
+      Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.reportData, reportDataIdList[i] );
+      ReportData rd = ReportData(
+        tmp['reportTitle'],
+        DateTime.parse( tmp['date'] ),
+        tmp['quotePoint'],
+        tmp['quoteTicket'],
+        tmp['sumPoint'],
+        tmp['sumRemainingPoint'],
+        tmp['sumConsumedTicket'],
+        tmp['sumRemainingTicket'],
+        tmp['sumIncompleteTicket'],
+        double.parse(tmp['necessaryPoint']),
+        double.parse(tmp['necessaryPointBP']),
+        null, //playerDataは、この時点ではオブジェクト化せず、tempListにIDリストの形で置いておく
+        tmp['playerDataList']==null ? null : List.from(tmp['playerDataList']),
+      );
+      reportDataList.add( rd );
+    }
+    return reportDataList;
+  }
 
 
   //　Validateの後に行われる処理
@@ -230,77 +281,119 @@ class _MainViewState extends State<MainView> {
     //##########SQLiteの操作関連ここまで################
 
     //プレイヤー名をコピーする処理
-    //rklにはすでにコピーが追加されているので、index -> index+1　となることに注意
     String playerName;
     List<int> playerList = [];
-    for( int i=0; i<rdl[index+1].playerDataList.length; i++ ){
-      //プレイヤー追加の処理　プレイヤー名をコピーする
-      playerName = rdl[index+1].playerDataList[i].playerName;
-      quoteTicket = rdl[index+1].quoteTicket;
+    if( rdl[index].playerDataList != null ){
+      for( int i=0; i<rdl[index+1].playerDataList.length; i++ ){
+        //プレイヤー追加の処理　プレイヤー名をコピーする
+        playerName = rdl[index].playerDataList[i].playerName;
+        quoteTicket = rdl[index].quoteTicket;
 
-      //##########SQLiteの操作関連ここから################
-      final PlayerData newPlayerData = PlayerData( playerName, quoteTicket );
-      Map<String, dynamic> rowPlayerData = {
-        'playerName' : playerName,
-        'consumedTicket' : 0,
-        'remainingTicket' : quoteTicket,
-        'incompleteTicket' : 0,
-        'getPoint' : 0,
-        //'bonusQuest' : '', //bonusQuestは↓でupdateするので不要
-        //'isBonusQuestComplete' : null, //初期値nullでいいので敢えて書かない
-        //'questDataList' : '', //questDataLitも↓でupdateするので不要
-      };
-      final playerId = await dh.insert( dh.playerData, rowPlayerData );
-      //追加したIDをReportDataのテーブルのplayerDataListに追加するためのList<int> = BLOB を作っておく
-      playerList.add( playerId );
-
-      List<String> bonusQuestList = [];
-      String bonusQuestListJason;
-      for( int i=0; i<3; i++ ){
-        newPlayerData.bonusQuest.add(''); //SQL完了時に削除
-        bonusQuestList.add('');
-      }
-      bonusQuestListJason = jsonEncode( bonusQuestList ); //List<String>はSQLite対応していないのでjson形式(String)で保存する
-      rowPlayerData = {
-        'id' : playerId,
-        'bonusQuest' : bonusQuestListJason,
-      };
-      dh.update( dh.playerData, rowPlayerData );
-
-      List<int> questList = [];
-      for( int i=0; i<quoteTicket; i++ ){
-        final QuestData newQuestData = QuestData();
-        newPlayerData.questDataList.add( newQuestData );
-        Map<String, dynamic> rowQuestData = {
-          'questPoint' : 0,
-          'questName' : '',
-          //'isCompleted' : null, //これは初期値nullなので敢えて書かない
+        //##########SQLiteの操作関連ここから################
+        final PlayerData newPlayerData = PlayerData( playerName, quoteTicket );
+        Map<String, dynamic> rowPlayerData = {
+          'playerName' : playerName,
+          'consumedTicket' : 0,
+          'remainingTicket' : quoteTicket,
+          'incompleteTicket' : 0,
+          'getPoint' : 0,
+          //'bonusQuest' : '', //bonusQuestは↓でupdateするので不要
+          //'isBonusQuestComplete' : null, //初期値nullでいいので敢えて書かない
+          //'questDataList' : '', //questDataLitも↓でupdateするので不要
         };
-        final questId = await dh.insert( dh.questData, rowQuestData );
-        questList.add( questId );
-      }
-      rowPlayerData = {
-        'id' : playerId,
-        'questDataList' : Uint8List.fromList( questList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
-      };
-      dh.update( dh.playerData, rowPlayerData );
+        final playerId = await dh.insert( dh.playerData, rowPlayerData );
+        //追加したIDをReportDataのテーブルのplayerDataListに追加するためのList<int> = BLOB を作っておく
+        playerList.add( playerId );
 
-      newReportData.playerDataList.add(newPlayerData);
+        List<String> bonusQuestList = [];
+        String bonusQuestListJason;
+        for( int i=0; i<3; i++ ){
+          newPlayerData.bonusQuest.add(''); //SQL完了時に削除
+          bonusQuestList.add('');
+        }
+        bonusQuestListJason = jsonEncode( bonusQuestList ); //List<String>はSQLite対応していないのでjson形式(String)で保存する
+        rowPlayerData = {
+          'id' : playerId,
+          'bonusQuest' : bonusQuestListJason,
+        };
+        dh.update( dh.playerData, rowPlayerData );
+
+        List<int> questList = [];
+        for( int i=0; i<quoteTicket; i++ ){
+          final QuestData newQuestData = QuestData();
+          newPlayerData.questDataList.add( newQuestData );
+          Map<String, dynamic> rowQuestData = {
+            'questPoint' : 0,
+            'questName' : '',
+            //'isCompleted' : null, //これは初期値nullなので敢えて書かない
+          };
+          final questId = await dh.insert( dh.questData, rowQuestData );
+          questList.add( questId );
+        }
+        rowPlayerData = {
+          'id' : playerId,
+          'questDataList' : Uint8List.fromList( questList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+        };
+        dh.update( dh.playerData, rowPlayerData );
+
+        newReportData.playerDataList.add(newPlayerData);
+      }
     }
+
     //追加したplayerIDのリストをReportDataのテーブルのplayerDataListに追加する
     rowReportData = {
       'id' : reportId,
       'playerDataList' : null,
     };
     dh.update( dh.reportData, rowReportData );
+    //##########SQLiteの操作関連ここまで################
 
+    setState(() {});
   }
 
-  void _removeReportDataItem( List<ReportData> rdl, int deleteIndex ){
-    setState(() {
-      dm.removeReportData( rdl[deleteIndex] );
-      setDeleteIndex(0);
-    });
+
+  void _removeReportDataItem( List<ReportData> rdl, int deleteIndex ) async{
+    dm.removeReportData( rdl[deleteIndex] ); //SQL完了時に削除
+    //##########SQLiteの操作関連ここから################
+    Map<String, dynamic> tmp;
+    //削除するレポートデータのIDを取得　⇒　データ削除
+    tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+    List<int> tmpList = List.from( tmp['reportDataList'] );
+    int deleteReportId = List.from( tmp['reportDataList'] )[deleteIndex];
+    tmpList.remove( deleteReportId );
+    List<int> updateGuildFestReportIdList = tmpList;
+    Map<String, dynamic> rowGFReportList = {
+      'id' : 1,  // idは必ず1でデータも1つのみでOK
+      'reportDataList' : Uint8List.fromList( updateGuildFestReportIdList ),
+    };
+
+    //削除するレポートに紐づいているプレイヤーIDリストを取得　⇒　データ削除
+    tmp = await dh.queryOnlyRows( dh.reportData, deleteReportId);
+    if( tmp['playerDataList'] != null ){
+      List<int> deletePlayerIdList = List.from( tmp['playerDataList'] );
+
+      //プレイヤーIDリストに紐づいているクエストIDリストを取得　⇒　データ削除
+      List<int> deleteQuestIdList = [];
+      for( int i=0; i<deletePlayerIdList.length; i++ ){
+        tmp = await dh.queryOnlyRows( dh.questData, deletePlayerIdList[i] );
+        if( tmp['questDataList'] != null ){
+          for( int j=0; j<List.from( tmp['questDataList'] ).length; j++ ){
+            deleteQuestIdList.add( List.from( tmp['questDataList'] )[j] );
+            await dh.delete( dh.questData, List.from( tmp['questDataList'] )[j] );
+          }
+        }
+      }
+      for( int i=0; i<deletePlayerIdList.length; i++ ){
+        await dh.delete( dh.playerData, deletePlayerIdList[i] );
+      }
+    }
+
+    await dh.update( dh.guildFestReportList, rowGFReportList ); //レポートリストの更新
+    await dh.delete( dh.reportData, deleteReportId ); //レポートデータの削除
+
+    //##########SQLiteの操作関連ここまで################
+    setDeleteIndex(0);
+    setState(() {});
   }
 
   void _showModalPicker(BuildContext context, List<String> items) {
@@ -364,7 +457,14 @@ class _MainViewState extends State<MainView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(def.Word().title[dm.language]),
+        title: FutureBuilder<int>(
+          future: _getLanguage(),
+          builder: (context, snapshot) {
+            return Text(
+              !snapshot.hasData ? '' : def.Word().title[ snapshot.data ],
+            );
+          }
+        ),
         centerTitle: true,
       ),
       body: Stack(
@@ -385,18 +485,20 @@ class _MainViewState extends State<MainView> {
                             children: [
                               FlatButton(
                                 onPressed: ()async{
-                                  //print( await dh.queryAllRows(dh.guildFestReportList) );
-                                  //print( await dh.queryAllRows(dh.reportData) );
+                                  //_getReportDataItem();
+                                  //_getLanguage();
+                                  //print( await dh.queryOnlyRows( dh.guildFestReportList, 1) );
+                                  print( await dh.queryAllRows(dh.reportData) );
                                   //print( await dh.queryAllRows(dh.playerData) );
                                 },
                                 child: Text('check'),
                               ),
                               FlatButton(
                                   onPressed: ()async{
-                                    dh.delete(dh.guildFestReportList);
-                                    dh.delete(dh.reportData);
-                                    dh.delete(dh.playerData);
-                                    dh.delete(dh.questData);
+                                    dh.deleteAll(dh.guildFestReportList);
+                                    dh.deleteAll(dh.reportData);
+                                    dh.deleteAll(dh.playerData);
+                                    dh.deleteAll(dh.questData);
                                   },
                                   child: Text('delete'),
                               ),
@@ -406,43 +508,58 @@ class _MainViewState extends State<MainView> {
 
                           Container(
                             padding: EdgeInsets.only( left: 8 ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  child: FlatButton.icon(
-                                    icon: Icon(
-                                      dm.language == def.Language().jp
-                                          ? Icons.check_box_outlined
-                                          : Icons.check_box_outline_blank,
-                                      color: Colors.black,
+                            child: FutureBuilder<int>(
+                              future: _getLanguage(),
+                              builder: (context, snapshot) {
+                                return Row(
+                                  children: [
+                                    !snapshot.hasData ? Container() : Container(
+                                      child: FlatButton.icon(
+                                        icon: Icon(
+                                          snapshot.data == def.Language().jp
+                                              ? Icons.check_box_outlined
+                                              : Icons.check_box_outline_blank,
+                                          color: Colors.black,
+                                        ),
+                                        label: Text('日本語'),
+                                        textColor: Colors.black,
+                                        onPressed: () {
+                                          Map<String, dynamic> rowGFReportList = {
+                                            'id' : 1,  // idは必ず1でデータも1つのみでOK
+                                            'language' : def.Language().jp,
+                                          };
+                                          setState(() {
+                                            dh.update( dh.guildFestReportList, rowGFReportList);
+                                            dm.setLanguage( def.Language().jp ); //SQQL完了時に削除
+                                          });
+                                        },
+                                      ),
                                     ),
-                                    label: Text('日本語'),
-                                    textColor: Colors.black,
-                                    onPressed: () {
-                                      setState(() {
-                                        dm.setLanguage( def.Language().jp );
-                                      });
-                                    },
-                                  ),
-                                ),
-                                Container(
-                                  child: FlatButton.icon(
-                                    icon: Icon(
-                                      dm.language == def.Language().eng
-                                          ? Icons.check_box_outlined
-                                          : Icons.check_box_outline_blank,
-                                      color: Colors.black,
+                                    !snapshot.hasData ? Container() : Container(
+                                      child: FlatButton.icon(
+                                        icon: Icon(
+                                          snapshot.data == def.Language().eng
+                                              ? Icons.check_box_outlined
+                                              : Icons.check_box_outline_blank,
+                                          color: Colors.black,
+                                        ),
+                                        label: Text('English'),
+                                        textColor: Colors.black,
+                                        onPressed: () {
+                                          Map<String, dynamic> rowGFReportList = {
+                                            'id' : 1,  // idは必ず1でデータも1つのみでOK
+                                            'language' : def.Language().eng,
+                                          };
+                                          setState(() {
+                                            dh.update( dh.guildFestReportList, rowGFReportList);
+                                            dm.setLanguage( def.Language().jp ); //SQQL完了時に削除
+                                          });
+                                        },
+                                      ),
                                     ),
-                                    label: Text('English'),
-                                    textColor: Colors.black,
-                                    onPressed: () {
-                                      setState(() {
-                                        dm.setLanguage( def.Language().eng );
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ],
+                                  ],
+                                );
+                              }
                             ),
                           ),
                           Padding(
@@ -465,13 +582,18 @@ class _MainViewState extends State<MainView> {
                                         child: Column(
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            Text(
-                                              def.Word().point1[dm.language],
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: MediaQuery.of(context).size.height * 0.025,
-                                                fontWeight: FontWeight.normal,
-                                              ),
+                                            FutureBuilder<int>(
+                                              future: _getLanguage(),
+                                              builder: (context, snapshot) {
+                                                return Text(
+                                                  !snapshot.hasData ? '' :def.Word().point1[snapshot.data],
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: MediaQuery.of(context).size.height * 0.025,
+                                                    fontWeight: FontWeight.normal,
+                                                  ),
+                                                );
+                                              }
                                             ),
                                             Icon(
                                               Icons.edit_outlined,
@@ -524,13 +646,18 @@ class _MainViewState extends State<MainView> {
                                         child: Column(
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            Text(
-                                              def.Word().ticket1[dm.language],
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: MediaQuery.of(context).size.height * 0.025,
-                                                fontWeight: FontWeight.normal,
-                                              ),
+                                            FutureBuilder<int>(
+                                              future: _getLanguage(),
+                                              builder: (context, snapshot) {
+                                                return Text(
+                                                  !snapshot.hasData ? '' : def.Word().ticket1[snapshot.data],
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: MediaQuery.of(context).size.height * 0.025,
+                                                    fontWeight: FontWeight.normal,
+                                                  ),
+                                                );
+                                              }
                                             ),
                                             Icon(
                                               Icons.edit_outlined,
@@ -587,28 +714,33 @@ class _MainViewState extends State<MainView> {
                                             left: Radius.circular(8.0)
                                         ),
                                     ),
-                                    child: TextField(
-                                      //事前に宣言していたTextEditingController(eCtrl）をcontrollerに代入します。
-                                      controller: eCtrl,
-                                      decoration: InputDecoration(
-                                        border: InputBorder.none,
-                                        hintText: def.Word().hintText[dm.language],
-                                        errorText: _validate ? def.Word().errorText[dm.language] : null,
-                                        contentPadding: EdgeInsets.all(8),
-                                      ),
-                                      onTap: () => setState(() => _validate = false),
-                                      //Keyboardの官僚が押された際にアイテムを追加します。
-                                      // 必要なければ省略しても構いません。
-                                      onSubmitted: (text) {
-                                        //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
-                                        if (text.isEmpty) {
-                                          setState(() {
-                                            _validate = true;
-                                          });
-                                        } else {
-                                          _addReportDataItem(text);
-                                        }
-                                      },
+                                    child: FutureBuilder<int>(
+                                      future: _getLanguage(),
+                                      builder: (context, snapshot) {
+                                        return TextField(
+                                          //事前に宣言していたTextEditingController(eCtrl）をcontrollerに代入します。
+                                          controller: eCtrl,
+                                          decoration: InputDecoration(
+                                            border: InputBorder.none,
+                                            hintText: !snapshot.hasData ? '' : def.Word().hintText[snapshot.data],
+                                            errorText: snapshot.hasData && _validate ? def.Word().errorText[snapshot.data] : null,
+                                            contentPadding: EdgeInsets.all(8),
+                                          ),
+                                          onTap: () => setState(() => _validate = false),
+                                          //Keyboardの官僚が押された際にアイテムを追加します。
+                                          // 必要なければ省略しても構いません。
+                                          onSubmitted: (text) {
+                                            //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
+                                            if (text.isEmpty) {
+                                              setState(() {
+                                                _validate = true;
+                                              });
+                                            } else {
+                                              _addReportDataItem(text);
+                                            }
+                                          },
+                                        );
+                                      }
                                     ),
                                   ),
                                 ),
@@ -660,33 +792,45 @@ class _MainViewState extends State<MainView> {
                 ),
               ),
               Expanded(
-                child: Container(
-                  height: double.infinity,
-                  width: double.infinity,
-                  child: Stack(
-                    children: [
-                      (){
-                      return Container();
-                      }(),
-                      Container(
-                        margin: EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-                        child: ListView.builder(
-                            itemCount: dm.guildFestReportList.length,
-                            itemBuilder: (BuildContext context, int fightDataIndex){
-                              return _buildListItem( dm.guildFestReportList, fightDataIndex );
-                            }
-                        ),
+                child: FutureBuilder<List<ReportData>>(
+                  future: _getReportDataItem(),
+                  builder: (context, snapshot) {
+                    return Container(
+                      height: double.infinity,
+                      width: double.infinity,
+                      child: Stack(
+                        children: [
+                          !snapshot.hasData ? Container() : Container(
+                            margin: EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                            child: ListView.builder(
+                                itemCount: snapshot.data.length,
+                                itemBuilder: (BuildContext context, int fightDataIndex){
+                                  return _buildListItem( snapshot.data, fightDataIndex );
+                                }
+                            ),
+                          ),
+                          _editReportName( snapshot.data, _editReportNameIndex ),
+                        ],
                       ),
-                      _editReportName( dm.guildFestReportList, _editReportNameIndex ),
-                    ],
-                  ),
+                    );
+                  }
                 ),
               ),
             ],
           ),
-          dm.guildFestReportList.length == 0
-              ?  Container()
-              : _caution( dm.guildFestReportList, _deleteReportIndex ),
+          FutureBuilder<List<ReportData>>(
+            future: _getReportDataItem(),
+            builder: (context, snapshot){
+              if( snapshot.hasData ){
+                return snapshot.data.length == 0
+                    ? Container()
+                    : _caution( snapshot.data, _deleteReportIndex );
+              } else {
+                return Container();
+              }
+            },
+          )
+
         ],
       ),
     );
@@ -728,7 +872,43 @@ class _MainViewState extends State<MainView> {
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
-                          onTap: (){
+                          onTap: () async{
+                            //選択したReportDataのplayerDataListがIDリストの状態なので、
+                            //ページ遷移するタイミングでIDリストからオブジェクトリストに置きなおす。
+                            List<PlayerData> playerDataList = [];
+                            List<ReportData> tmp = await _getReportDataItem();
+                            List<int> playerDataIdList = tmp[index].tempList;
+                            if( playerDataIdList != null ){
+                              for( int i=0; i<playerDataIdList.length; i++ ){
+                                Map<String, dynamic> pdlMap = await dh.queryOnlyRows( dh.playerData, playerDataIdList[i] );
+                                PlayerData pd = PlayerData(
+                                  pdlMap['playerName'],
+                                  pdlMap['remainingTicket'],
+                                  pdlMap['consumedTicket'],
+                                  pdlMap['incompleteTicket'],
+                                  pdlMap['getPoint'],
+                                  jsonDecode( pdlMap['bonusQuest'] ),
+                                      (){
+                                    //SQLはbool型を扱えないので、int型として保存してある
+                                    // 0: true, 1: false
+                                    switch( pdlMap['isBonusQuestComplete'] ){
+                                      case 0:
+                                        return true;
+                                        break;
+                                      case 1:
+                                        return false;
+                                        break;
+                                      default :
+                                        return null;
+                                    }
+                                  }(),
+                                  null, //playerDataは、この時点ではオブジェクト化せず、tempListにIDリストの形で置いておく
+                                  pdlMap['tempList']==null ? null : List.from(pdlMap['tempList']),
+                                );
+                                playerDataList.add( pd );
+                              }
+                            }
+                            reportDataList[index].updateReportData('playerDataList', playerDataList);
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (context) => FightDetail(reportDataList[index]) )
@@ -798,13 +978,20 @@ class _MainViewState extends State<MainView> {
           ),
           reportDataList.length != index+1
               ? Container()
-              : Text(
-            '<-----${def.Word().slideGuide1[dm.language]}----->',
+              : FutureBuilder<int>(
+                future: _getLanguage(),
+                builder: (context, snapshot) {
+                  return Text(
+                    !snapshot.hasData
+                        ? ''
+                        : '<-----${def.Word().slideGuide1[snapshot.data]}----->',
             style: TextStyle(
-              color: Colors.grey,
-              fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.bold,
             ),
-          ),
+          );
+                }
+              ),
         ],
       ),
     );
@@ -826,12 +1013,19 @@ class _MainViewState extends State<MainView> {
               Container(
                 padding: EdgeInsets.only( left: 8, bottom: 4 ),
                 alignment: Alignment.bottomLeft,
-                child: Text(
-                  def.Word().editReportName[dm.language],
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
+                child: FutureBuilder<int>(
+                  future: _getLanguage(),
+                  builder: (context, snapshot) {
+                    return Text(
+                      !snapshot.hasData
+                          ? ''
+                          : def.Word().editReportName[snapshot.data],
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    );
+                  }
                 ),
               ),
               Row(
@@ -847,32 +1041,45 @@ class _MainViewState extends State<MainView> {
                             left: Radius.circular(8.0)
                         ),
                       ),
-                      child: TextField(
-                        //事前に宣言していたTextEditingController(nameCtrl）をcontrollerに代入します。
-                        controller: nameCtrl,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: null,
-                          errorText: _validateEditName ? def.Word().reportNameIsEmpty[dm.language] : null,
-                          contentPadding: EdgeInsets.all(8),
-                        ),
-                        onTap: () => setState(() => _validateEditName = false),
-                        //Keyboardの官僚が押された際にアイテムを追加します。
-                        // 必要なければ省略しても構いません。
-                        onSubmitted: (reportName) {
-                          //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
-                          if (reportName.isEmpty) {
-                            setState(() {
-                              _validateEditName = true;
-                            });
-                          } else {
-                            //入力完了時の処理
-                            setState(() {
-                              reportDataList[editReportNameIndex].updateReportData('reportTitle', reportName);
-                              _offstageEditReportName = true;
-                            });
-                          }
-                        },
+                      child: FutureBuilder<int>(
+                        future: _getLanguage(),
+                        builder: (context, snapshot) {
+                          return TextField(
+                            //事前に宣言していたTextEditingController(nameCtrl）をcontrollerに代入します。
+                            controller: nameCtrl,
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              hintText: null,
+                              errorText: snapshot.hasData && _validateEditName ? def.Word().reportNameIsEmpty[snapshot.data] : null,
+                              contentPadding: EdgeInsets.all(8),
+                            ),
+                            onTap: () => setState(() => _validateEditName = false),
+                            //Keyboardの官僚が押された際にアイテムを追加します。
+                            // 必要なければ省略しても構いません。
+                            onSubmitted: (reportName) async{
+                              //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
+                              if (reportName.isEmpty) {
+                                setState(() {
+                                  _validateEditName = true;
+                                });
+                              } else {
+                                //入力完了時の処理
+                                reportDataList[editReportNameIndex].updateReportData('reportTitle', reportName); //SQL完了時に削除
+                                //##########SQLiteの操作関連ここから################
+                                Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+                                int editReportId = List.from( tmp['reportDataList'] )[editReportNameIndex];
+                                Map<String, dynamic> rowReportData = {
+                                  'id' : editReportId,
+                                  'reportTitle' : reportName,
+                                };
+                                await dh.update( dh.reportData, rowReportData );
+                                //##########SQLiteの操作関連ここまで################
+                                _offstageEditReportName = true;
+                                setState(() {});
+                              }
+                            },
+                          );
+                        }
                       ),
                     ),
                   ),
@@ -889,16 +1096,24 @@ class _MainViewState extends State<MainView> {
                         padding: EdgeInsets.all(8.0),
                         child: Icon(Icons.check, color: Colors.white),
                       ),
-                      onPressed: () {
+                      onPressed: () async{
                         //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
                         if (nameCtrl.text.isEmpty) {
                           setState(() => _validateEditName = true);
                         } else {
                           //入力完了時の処理
-                          setState(() {
-                            reportDataList[editReportNameIndex].updateReportData('reportTitle', nameCtrl.text);
-                            _offstageEditReportName = true;
-                          });
+                          reportDataList[editReportNameIndex].updateReportData('reportTitle', nameCtrl.text); //SQL完了時に削除
+                          //##########SQLiteの操作関連ここから################
+                          Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+                          int editReportId = List.from( tmp['reportDataList'] )[editReportNameIndex];
+                          Map<String, dynamic> rowReportData = {
+                            'id' : editReportId,
+                            'reportTitle' : nameCtrl.text,
+                          };
+                          await dh.update( dh.reportData, rowReportData );
+                          //##########SQLiteの操作関連ここまで################
+                          _offstageEditReportName = true;
+                          setState(() {});
                         }
                       },
                     ),
@@ -928,23 +1143,30 @@ class _MainViewState extends State<MainView> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Column(
-                children: [
-                  Text(
-                    '${def.Word().caution1[dm.language]}${rdl[deleteIndex].reportTitle}${def.Word().caution2[dm.language]}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                  Text(
-                    def.Word().caution3[dm.language],
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                ],
+              FutureBuilder<int>(
+                future: _getLanguage(),
+                builder: (context, snapshot) {
+                  return Column(
+                    children: [
+                      Text(
+                        !snapshot.hasData
+                            ? ''
+                            : '${def.Word().caution1[snapshot.data]}${rdl[deleteIndex].reportTitle}${def.Word().caution2[snapshot.data]}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
+                      ),
+                      Text(
+                        !snapshot.hasData ? '' : def.Word().caution3[dm.language],
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ],
+                  );
+                }
               ),
               Container(
                 height: 20,
@@ -954,7 +1176,14 @@ class _MainViewState extends State<MainView> {
                 children: [
                   RaisedButton(
                     elevation: 16,
-                    child: Text( def.Word().caution4[dm.language] ),
+                    child: FutureBuilder<int>(
+                      future: _getLanguage(),
+                      builder: (context, snapshot) {
+                        return Text(
+                          !snapshot.hasData ? '' : def.Word().caution4[dm.language] ,
+                        );
+                      }
+                    ),
                     color: Colors.grey[300],
                     onPressed: () {
                       setState(() {
@@ -968,7 +1197,14 @@ class _MainViewState extends State<MainView> {
                   ),
                   RaisedButton(
                     elevation: 16,
-                    child: Text( def.Word().caution5[dm.language] ),
+                    child: FutureBuilder<int>(
+                      future: _getLanguage(),
+                      builder: (context, snapshot) {
+                        return Text(
+                          !snapshot.hasData ? '' : def.Word().caution5[snapshot.data] ,
+                        );
+                      }
+                    ),
                     color: Colors.grey[300],
                     onPressed: () {
                       setState(() {
