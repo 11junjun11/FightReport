@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:fight_report/Common/AppBackgroundPage.dart';
 import 'package:fight_report/Common/DataManager.dart';
 import 'package:flutter/cupertino.dart';
@@ -7,13 +10,18 @@ import 'package:intl/intl.dart';
 import 'package:fight_report/Common/Defines.dart' as def;
 
 class FightDetail extends StatefulWidget {
-  FightDetail( this.rd );
+  FightDetail( this.rd, this.rdId );
   final ReportData rd;
+  int rdId;
   @override
   _FightDetailState createState() => _FightDetailState();
 }
 
 class _FightDetailState extends State<FightDetail> {
+
+  // DataBaseHelperをインスタンス化
+  final dh = DatabaseHelper.instance;
+
 
   DataManager dm = new DataManager();
 
@@ -73,12 +81,45 @@ class _FightDetailState extends State<FightDetail> {
 
   PlayerData viewPlayerData;
 
-  void _addPlayerDataItem( String playerName ){
+  void _addPlayerDataItem( String playerName ) async{
     int remainingTicket;
 
     //画面左側のデータを作る（PlayerData）
     remainingTicket = widget.rd.quoteTicket;
+
+    //##########SQLiteの操作関連ここから################
     final PlayerData newPlayerData = PlayerData( playerName, remainingTicket );
+    Map<String, dynamic> rowPlayerData = {
+      'playerName' : playerName,
+      'consumedTicket' : 0,
+      'remainingTicket' : remainingTicket,
+      'incompleteTicket' : 0,
+      'getPoint' : 0,
+      'bonusQuest' : jsonEncode( ['', '', ''] ),
+      'isBonusQuestComplete' : null,
+      //'questDataList' : null, //これは画面右側でupdateするので不要
+    };
+    final playerId = await dh.insert( dh.playerData, rowPlayerData );
+
+    Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.reportData, widget.rdId );
+    Map<String, dynamic> rowReportData;
+    List<int> playerIdList;
+    if( tmp['playerDataList'] != null ){
+      playerIdList = List.from( tmp['playerDataList'] );
+      playerIdList.add( playerId );
+      rowReportData = {
+        'id' : widget.rdId,
+        'playerDataList' : Uint8List.fromList( playerIdList ),
+      };
+    } else {
+      playerIdList = [playerId];
+      rowReportData = {
+        'id' : widget.rdId,
+        'playerDataList' : Uint8List.fromList( playerIdList ),
+      };
+    }
+    await dh.update( dh.reportData, rowReportData );
+
 
     //画面右側のデータを作る（questData）
     for( int i=0; i<3; i++ ){
@@ -92,6 +133,44 @@ class _FightDetailState extends State<FightDetail> {
     widget.rd.playerDataList.add(newPlayerData);
     _calcAll( newPlayerData );
     setState(() {});
+  }
+
+  Future<List<PlayerData>> _getPlayerDataItem() async{
+    //まずはプレイヤーIDのリストを取得する
+    List<PlayerData> playerDataList = [];
+    Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.reportData, widget.rdId );
+    var playerDataIdUint8List = tmpMap['playerDataList'];
+    List<int> playerDataIdList = List.from( playerDataIdUint8List );
+
+    //レポートIDに紐づけられたレポートデータを取得する
+    for( int i=0; i<playerDataIdList.length; i++ ){
+      Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.reportData, playerDataIdList[i] );
+      PlayerData pd = PlayerData(
+        tmp['playerName'],
+        tmp['remainingTicket'],
+        tmp['consumedTicket'],
+        tmp['incompleteTicket'],
+        tmp['getPoint'],
+        jsonDecode( tmp['bonusQuest'] ),
+        (){
+          switch( tmp['isBonusQuestComplete'] ){
+            case 0 :
+              return true;
+              break;
+            case 1:
+              return false;
+              break;
+            default :
+              return null;
+          }
+        }(),
+        //tmp['questDataList'], //クエストデータは初期値[]なので敢えて書かない
+        //tmp['tempList'], //これいらんかも
+      );
+      playerDataList.add( pd );
+    }
+
+    return playerDataList;
   }
 
   void _removePlayerDataItem( PlayerData pd ){

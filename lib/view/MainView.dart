@@ -488,8 +488,8 @@ class _MainViewState extends State<MainView> {
                                   //_getReportDataItem();
                                   //_getLanguage();
                                   //print( await dh.queryOnlyRows( dh.guildFestReportList, 1) );
-                                  print( await dh.queryAllRows(dh.reportData) );
-                                  //print( await dh.queryAllRows(dh.playerData) );
+                                  //print( await dh.queryAllRows(dh.reportData) );
+                                  print( await dh.queryAllRows(dh.playerData) );
                                 },
                                 child: Text('check'),
                               ),
@@ -909,9 +909,11 @@ class _MainViewState extends State<MainView> {
                               }
                             }
                             reportDataList[index].updateReportData('playerDataList', playerDataList);
+                            Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+                            int rdId = List.from( tmpMap['reportDataList'] )[index];
                             Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (context) => FightDetail(reportDataList[index]) )
+                                MaterialPageRoute(builder: (context) => FightDetail( reportDataList[index], rdId ) )
                             );
                           },
                         ),
