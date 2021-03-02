@@ -54,7 +54,7 @@ class DatabaseHelper {
               (
                 id INTEGER,
                 language INTEGER,
-                reportDataList BLOB
+                reportDataList TEXT
               )
             """);
     await db.execute("""
@@ -72,7 +72,7 @@ class DatabaseHelper {
                 sumIncompleteTicket INTEGER,
                 necessaryPoint TEXT,
                 necessaryPointBP TEXT,
-                playerDataList BLOB
+                playerDataList TEXT
               )
             """);
     await db.execute("""
@@ -86,7 +86,7 @@ class DatabaseHelper {
                 getPoint INTEGER,
                 bonusQuest TEXT,
                 isBonusQuestComplete INTEGER,
-                questDataList BLOB
+                questDataList TEXT
               )
             """);
     await db.execute("""

@@ -47,7 +47,7 @@ class _MainViewState extends State<MainView> {
         rowGFReportList = {
           'id' : 1,  // idは必ず1でデータも1つのみでOK
           'language' : 0,
-          'reportDataList' : null,  //List<int> = BLOB はUint8List形式で保存しておくこと
+          'reportDataList' : null,  //List<int>はjsonEncodeしてString形式で保存しておくこと
         };
         await dh.insert( dh.guildFestReportList, rowGFReportList );
       }
@@ -121,8 +121,8 @@ class _MainViewState extends State<MainView> {
     //まずはレポートIDのリストを取得する
     List<ReportData> reportDataList = [];
     Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
-    var reportDataIdUint8List = tmpMap['reportDataList'];
-    List<int> reportDataIdList = List.from( reportDataIdUint8List );
+    var reportDataIdJsonList = tmpMap['reportDataList'];
+    List<int> reportDataIdList = jsonDecode( reportDataIdJsonList ).cast<int>();
 
     //レポートIDに紐づけられたレポートデータを取得する
     for( int i=0; i<reportDataIdList.length; i++ ){
@@ -140,7 +140,7 @@ class _MainViewState extends State<MainView> {
         double.parse(tmp['necessaryPoint']),
         double.parse(tmp['necessaryPointBP']),
         null, //playerDataは、この時点ではオブジェクト化せず、tempListにIDリストの形で置いておく
-        tmp['playerDataList']==null ? null : List.from(tmp['playerDataList']),
+        tmp['playerDataList']==null ? null : jsonDecode( tmp['playerDataList'] ).cast<int>(),
       );
       reportDataList.add( rd );
     }
@@ -162,7 +162,7 @@ class _MainViewState extends State<MainView> {
       rowGFReportList = {
         'id' : 1,  // idは必ず1でデータも1つのみでOK
         'language' : 0,
-        'reportDataList' : null,  //List<int> = BLOB はUint8List形式で保存しておくこと
+        'reportDataList' : null,  //List<int>はjsonEncodeしてString形式で保存しておくこと
       };
       guildFestReportId = await dh.insert( dh.guildFestReportList, rowGFReportList );
     }
@@ -206,16 +206,16 @@ class _MainViewState extends State<MainView> {
     final id = await dh.insert( dh.reportData, rowReportData );
     //追加したIDをGuildFestReportListのテーブルの０番目に追加する
     List<int> reportList;
-    var reportUint8List = tempListMap.first['reportDataList'];
-    if( reportUint8List == null ){
+    var reportJsonList = tempListMap.first['reportDataList'];
+    if( reportJsonList == null ){
       reportList = [];
     } else {
-      reportList = List.from( reportUint8List );
+      reportList = jsonDecode( reportJsonList ).cast<int>();
     }
     reportList.insert( 0, id );
     rowGFReportList = {
       'id' : 1,  // idは必ず1でデータも1つのみでOK
-      'reportDataList' : Uint8List.fromList( reportList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+      'reportDataList' : jsonEncode( reportList ),  //List<int>はjsonEncodeしてString形式で保存しておくこと
     };
     dh.update( dh.guildFestReportList, rowGFReportList );
     //##########SQLiteの操作関連ここまで################
@@ -266,16 +266,16 @@ class _MainViewState extends State<MainView> {
     //追加したIDをGuildFestReportListのテーブルの０番目に追加する
     List<int> reportList;
     List<Map<String, dynamic>> tempListMap = await dh.queryAllRows( dh.guildFestReportList );
-    var reportUint8List = tempListMap.first['reportDataList'];
-    if( reportUint8List == null ){
+    var reportJsonList = tempListMap.first['reportDataList'];
+    if( reportJsonList == null ){
       reportList = [];
     } else {
-      reportList = List.from( reportUint8List );
+      reportList = jsonDecode( reportJsonList ).cast<int>();
     }
     reportList.insert( 0, reportId );
     Map<String, dynamic> rowGFReportList = {
       'id' : 1,  // idは必ず1でデータも1つのみでOK
-      'reportDataList' : Uint8List.fromList( reportList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+      'reportDataList' : jsonEncode( reportList ),  //List<int>jsonEncodeしてString形式で保存しておくこと
     };
     dh.update( dh.guildFestReportList, rowGFReportList );
     //##########SQLiteの操作関連ここまで################
@@ -332,7 +332,7 @@ class _MainViewState extends State<MainView> {
         }
         rowPlayerData = {
           'id' : playerId,
-          'questDataList' : Uint8List.fromList( questList ),  //List<int> = BLOB はUint8List形式で保存しておくこと
+          'questDataList' : jsonEncode( questList ),  //List<int>はjsonEncodeしてString形式で保存しておくこと
         };
         dh.update( dh.playerData, rowPlayerData );
 
@@ -358,28 +358,28 @@ class _MainViewState extends State<MainView> {
     Map<String, dynamic> tmp;
     //削除するレポートデータのIDを取得　⇒　データ削除
     tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
-    List<int> tmpList = List.from( tmp['reportDataList'] );
-    int deleteReportId = List.from( tmp['reportDataList'] )[deleteIndex];
+    List<int> tmpList = jsonDecode( tmp['reportDataList'] ).cast<int>();
+    int deleteReportId = jsonDecode( tmp['reportDataList'] ).cast<int>()[deleteIndex];
     tmpList.remove( deleteReportId );
     List<int> updateGuildFestReportIdList = tmpList;
     Map<String, dynamic> rowGFReportList = {
       'id' : 1,  // idは必ず1でデータも1つのみでOK
-      'reportDataList' : Uint8List.fromList( updateGuildFestReportIdList ),
+      'reportDataList' : jsonEncode( updateGuildFestReportIdList ),
     };
 
     //削除するレポートに紐づいているプレイヤーIDリストを取得　⇒　データ削除
     tmp = await dh.queryOnlyRows( dh.reportData, deleteReportId);
     if( tmp['playerDataList'] != null ){
-      List<int> deletePlayerIdList = List.from( tmp['playerDataList'] );
+      List<int> deletePlayerIdList = jsonDecode( tmp['playerDataList'] ).cast<int>();
 
       //プレイヤーIDリストに紐づいているクエストIDリストを取得　⇒　データ削除
       List<int> deleteQuestIdList = [];
       for( int i=0; i<deletePlayerIdList.length; i++ ){
         tmp = await dh.queryOnlyRows( dh.questData, deletePlayerIdList[i] );
         if( tmp['questDataList'] != null ){
-          for( int j=0; j<List.from( tmp['questDataList'] ).length; j++ ){
-            deleteQuestIdList.add( List.from( tmp['questDataList'] )[j] );
-            await dh.delete( dh.questData, List.from( tmp['questDataList'] )[j] );
+          for( int j=0; j<jsonDecode( tmp['questDataList'] ).cast<int>().length; j++ ){
+            deleteQuestIdList.add( jsonDecode( tmp['questDataList'] ).cast<int>()[j] );
+            await dh.delete( dh.questData, jsonDecode( tmp['questDataList'] ).cast<int>()[j] );
           }
         }
       }
@@ -485,11 +485,10 @@ class _MainViewState extends State<MainView> {
                             children: [
                               FlatButton(
                                 onPressed: ()async{
-                                  //_getReportDataItem();
-                                  //_getLanguage();
                                   //print( await dh.queryOnlyRows( dh.guildFestReportList, 1) );
                                   //print( await dh.queryAllRows(dh.reportData) );
                                   print( await dh.queryAllRows(dh.playerData) );
+                                  print( await dh.queryAllRows(dh.questData) );
                                 },
                                 child: Text('check'),
                               ),
@@ -887,7 +886,7 @@ class _MainViewState extends State<MainView> {
                                   pdlMap['consumedTicket'],
                                   pdlMap['incompleteTicket'],
                                   pdlMap['getPoint'],
-                                  jsonDecode( pdlMap['bonusQuest'] ),
+                                  jsonDecode( pdlMap['bonusQuest'] ).cast<String>(),
                                       (){
                                     //SQLはbool型を扱えないので、int型として保存してある
                                     // 0: true, 1: false
@@ -903,14 +902,14 @@ class _MainViewState extends State<MainView> {
                                     }
                                   }(),
                                   null, //playerDataは、この時点ではオブジェクト化せず、tempListにIDリストの形で置いておく
-                                  pdlMap['tempList']==null ? null : List.from(pdlMap['tempList']),
+                                  pdlMap['tempList']==null ? null : jsonDecode( pdlMap['tempList'] ).cast<int>(),
                                 );
                                 playerDataList.add( pd );
                               }
                             }
                             reportDataList[index].updateReportData('playerDataList', playerDataList);
                             Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
-                            int rdId = List.from( tmpMap['reportDataList'] )[index];
+                            int rdId = jsonDecode( tmpMap['reportDataList'] ).cast<int>()[index];
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (context) => FightDetail( reportDataList[index], rdId ) )
@@ -1069,7 +1068,7 @@ class _MainViewState extends State<MainView> {
                                 reportDataList[editReportNameIndex].updateReportData('reportTitle', reportName); //SQL完了時に削除
                                 //##########SQLiteの操作関連ここから################
                                 Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
-                                int editReportId = List.from( tmp['reportDataList'] )[editReportNameIndex];
+                                int editReportId = jsonDecode( tmp['reportDataList'] ).cast<int>()[editReportNameIndex];
                                 Map<String, dynamic> rowReportData = {
                                   'id' : editReportId,
                                   'reportTitle' : reportName,
@@ -1107,7 +1106,7 @@ class _MainViewState extends State<MainView> {
                           reportDataList[editReportNameIndex].updateReportData('reportTitle', nameCtrl.text); //SQL完了時に削除
                           //##########SQLiteの操作関連ここから################
                           Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.guildFestReportList, 1);
-                          int editReportId = List.from( tmp['reportDataList'] )[editReportNameIndex];
+                          int editReportId = jsonDecode( tmp['reportDataList'] ).cast<int>()[editReportNameIndex];
                           Map<String, dynamic> rowReportData = {
                             'id' : editReportId,
                             'reportTitle' : nameCtrl.text,

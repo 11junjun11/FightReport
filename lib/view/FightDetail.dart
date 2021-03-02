@@ -45,6 +45,8 @@ class _FightDetailState extends State<FightDetail> {
   //Input fieldで使用するControllerの定義
   TextEditingController playerNameCtrl = TextEditingController();
 
+  PlayerData viewPlayerData;
+
   @override
   void initState() {
     super.initState();
@@ -79,7 +81,12 @@ class _FightDetailState extends State<FightDetail> {
 
   }
 
-  PlayerData viewPlayerData;
+  Future<int> _getLanguage() async{
+    int language;
+    Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.guildFestReportList, 1);
+    language = tmpMap['language'];
+    return language;
+  }
 
   void _addPlayerDataItem( String playerName ) async{
     int remainingTicket;
@@ -88,7 +95,16 @@ class _FightDetailState extends State<FightDetail> {
     remainingTicket = widget.rd.quoteTicket;
 
     //##########SQLiteの操作関連ここから################
-    final PlayerData newPlayerData = PlayerData( playerName, remainingTicket );
+    final PlayerData newPlayerData = PlayerData(
+      playerName,
+      remainingTicket,
+      0,
+      0,
+      0,
+      [],
+      null,
+      [],
+    );
     Map<String, dynamic> rowPlayerData = {
       'playerName' : playerName,
       'consumedTicket' : 0,
@@ -105,30 +121,46 @@ class _FightDetailState extends State<FightDetail> {
     Map<String, dynamic> rowReportData;
     List<int> playerIdList;
     if( tmp['playerDataList'] != null ){
-      playerIdList = List.from( tmp['playerDataList'] );
+      playerIdList = jsonDecode( tmp['playerDataList'] ).cast<int>();
       playerIdList.add( playerId );
       rowReportData = {
         'id' : widget.rdId,
-        'playerDataList' : Uint8List.fromList( playerIdList ),
+        'playerDataList' : jsonEncode( playerIdList ), //List<int>をjsonEncodeしてString形式で保存しておく
       };
     } else {
       playerIdList = [playerId];
       rowReportData = {
         'id' : widget.rdId,
-        'playerDataList' : Uint8List.fromList( playerIdList ),
+        'playerDataList' : jsonEncode( playerIdList ), //List<int>をjsonEncodeしてString形式で保存しておく
       };
     }
     await dh.update( dh.reportData, rowReportData );
-
 
     //画面右側のデータを作る（questData）
     for( int i=0; i<3; i++ ){
       newPlayerData.bonusQuest.add('');
     }
+
+    List<int> questIdList = [];
     for( int i=0; i<remainingTicket; i++ ){
-      final QuestData newQuestData = QuestData();
+      final QuestData newQuestData = QuestData( 0, null, '' );
+      Map<String, dynamic> rowQuestData = {
+        'questPoint' : 0,
+        'questName' : '',
+        'isCompleted' : null,
+      };
+      final questId = await dh.insert( dh.questData, rowQuestData );
+      Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.playerData, playerId );
+      Map<String, dynamic> rowPlayerData;
+      questIdList.add(questId);
       newPlayerData.questDataList.add( newQuestData );
     }
+    rowPlayerData = {
+      'id' :playerId,
+      'questDataList' : jsonEncode( questIdList ),
+    };
+
+    await dh.update( dh.playerData, rowPlayerData );
 
     widget.rd.playerDataList.add(newPlayerData);
     _calcAll( newPlayerData );
@@ -139,19 +171,21 @@ class _FightDetailState extends State<FightDetail> {
     //まずはプレイヤーIDのリストを取得する
     List<PlayerData> playerDataList = [];
     Map<String, dynamic> tmpMap = await dh.queryOnlyRows( dh.reportData, widget.rdId );
-    var playerDataIdUint8List = tmpMap['playerDataList'];
-    List<int> playerDataIdList = List.from( playerDataIdUint8List );
+    var playerDataIdJsonList = tmpMap['playerDataList'];
+    List<int> playerDataIdList = jsonDecode( playerDataIdJsonList ).cast<int>();
 
-    //レポートIDに紐づけられたレポートデータを取得する
+
+    //レポートIDに紐づけられたプレイヤーデータを取得する
     for( int i=0; i<playerDataIdList.length; i++ ){
-      Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.reportData, playerDataIdList[i] );
+      Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.playerData, playerDataIdList[i] );
+
       PlayerData pd = PlayerData(
         tmp['playerName'],
         tmp['remainingTicket'],
         tmp['consumedTicket'],
         tmp['incompleteTicket'],
         tmp['getPoint'],
-        jsonDecode( tmp['bonusQuest'] ),
+        jsonDecode( tmp['bonusQuest'] ).cast<String>(),
         (){
           switch( tmp['isBonusQuestComplete'] ){
             case 0 :
@@ -164,14 +198,36 @@ class _FightDetailState extends State<FightDetail> {
               return null;
           }
         }(),
-        //tmp['questDataList'], //クエストデータは初期値[]なので敢えて書かない
+        //jsonDecode( tmp['questDataList'] ), //List<int>型なので↓でオブジェクト化する
         //tmp['tempList'], //これいらんかも
       );
+      List<QuestData> qdl = [];
+      for( int j=0; j<jsonDecode( tmp['questDataList'] ).cast<int>().length; j++ ){
+        Map<String, dynamic> qdMap = await dh.queryOnlyRows( dh.questData, jsonDecode( tmp['questDataList'] ).cast<int>()[j] );
+        QuestData qd = QuestData(
+          qdMap['questPoint'],
+              (){
+            switch( qdMap['isCompleted'] ){
+              case 0 :
+                return true;
+                break;
+              case 1:
+                return false;
+                break;
+              default :
+                return null;
+            }
+          }(),
+          qdMap['questName'],
+        );
+        qdl.add(qd);
+      }
+      pd.updatePlayerData('questDataList', qdl);
       playerDataList.add( pd );
     }
-
     return playerDataList;
   }
+
 
   void _removePlayerDataItem( PlayerData pd ){
     setState(() {
@@ -421,6 +477,11 @@ class _FightDetailState extends State<FightDetail> {
       appBar: AppBar(
         title: Text( widget.rd.reportTitle ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.add),
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -433,67 +494,93 @@ class _FightDetailState extends State<FightDetail> {
                     Container(
                       child: Column(
                         children: [
-                          Container(
-                            width: double.infinity,
-                            child: Row(
-                              children: [
-                                Column(
+                          FutureBuilder<int>(
+                            future: _getLanguage(),
+                            builder: (context, snapshotLanguage) {
+                              return Container(
+                                width: double.infinity,
+                                child: Row(
                                   children: [
-                                    _buildChartView(
-                                      '${def.Word().targetPoint[dm.language]}: ', widget.rd.quotePoint*widget.rd.playerDataList.length,
-                                      '${def.Word().sum[dm.language]}: ', widget.rd.sumPoint,
-                                      '${def.Word().remPoint[dm.language]}: ', widget.rd.sumRemainingPoint,
+                                    Column(
+                                      children: [
+                                        !snapshotLanguage.hasData
+                                            ? Container()
+                                            : _buildChartView(
+                                          '${def.Word().targetPoint[snapshotLanguage.data]}: ', widget.rd.quotePoint*widget.rd.playerDataList.length,
+                                          '${def.Word().sum[snapshotLanguage.data]}: ', widget.rd.sumPoint,
+                                          '${def.Word().remPoint[snapshotLanguage.data]}: ', widget.rd.sumRemainingPoint,
+                                        ),
+                                       !snapshotLanguage.hasData
+                                           ? Container()
+                                           : _buildChartView(
+                                          '${def.Word().allTickets[snapshotLanguage.data]}: ', widget.rd.quoteTicket * widget.rd.playerDataList.length,
+                                          '${def.Word().fin1[snapshotLanguage.data]}: ', widget.rd.sumConsumedTicket,
+                                          '${def.Word().remTicket[snapshotLanguage.data]}: ', widget.rd.sumRemainingTicket,
+                                        ),
+                                      ],
                                     ),
-                                    _buildChartView(
-                                      '${def.Word().allTickets[dm.language]}: ', widget.rd.quoteTicket * widget.rd.playerDataList.length,
-                                      '${def.Word().fin1[dm.language]}: ', widget.rd.sumConsumedTicket,
-                                      '${def.Word().remTicket[dm.language]}: ', widget.rd.sumRemainingTicket,
+                                    Container(
+                                      padding: EdgeInsets.only(
+                                        left: MediaQuery.of(context).size.width * 0.5 * 0.4 * 0.1,
+                                        right: MediaQuery.of(context).size.width * 0.5 * 0.4 * 0.05,
+                                      ),
+                                      width: MediaQuery.of(context).size.width * 0.5 * 0.4,
+                                      child: Column(
+                                        children: [
+                                          !snapshotLanguage.hasData
+                                              ? Container()
+                                              : _buildOtherInfoView( 'trgt pt/plyr', '${def.Word().trgtPointPlayer[snapshotLanguage.data]}:', widget.rd.quotePoint ),
+                                          !snapshotLanguage.hasData
+                                              ? Container()
+                                              : _buildOtherInfoView(  'Ave. w/o BP', '${def.Word().ave1[snapshotLanguage.data]} :', widget.rd.necessaryPoint ),
+                                          !snapshotLanguage.hasData
+                                              ? Container()
+                                              : _buildOtherInfoView( 'Ave. with BP', '${def.Word().ave2[snapshotLanguage.data]}:', widget.rd.necessaryPointBP ),
+                                          !snapshotLanguage.hasData
+                                              ? Container()
+                                              : _buildOtherInfoView( 'tickets/plyr', '${def.Word().ticketsPlayer[snapshotLanguage.data]}:', widget.rd.quoteTicket ),
+                                          !snapshotLanguage.hasData
+                                              ? Container()
+                                              : _buildOtherInfoView( 'mistaken tickets','${def.Word().mistakenTickets[snapshotLanguage.data]}:', widget.rd.sumIncompleteTicket ),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
-                                Container(
-                                  padding: EdgeInsets.only(
-                                    left: MediaQuery.of(context).size.width * 0.5 * 0.4 * 0.1,
-                                    right: MediaQuery.of(context).size.width * 0.5 * 0.4 * 0.05,
-                                  ),
-                                  width: MediaQuery.of(context).size.width * 0.5 * 0.4,
-                                  child: Column(
-                                    children: [
-                                      _buildOtherInfoView( 'trgt pt/plyr', '${def.Word().trgtPointPlayer[dm.language]}:', widget.rd.quotePoint ),
-                                      _buildOtherInfoView(  'Ave. w/o BP', '${def.Word().ave1[dm.language]} :', widget.rd.necessaryPoint ),
-                                      _buildOtherInfoView( 'Ave. with BP', '${def.Word().ave2[dm.language]}:', widget.rd.necessaryPointBP ),
-                                      _buildOtherInfoView( 'tickets/plyr', '${def.Word().ticketsPlayer[dm.language]}:', widget.rd.quoteTicket ),
-                                      _buildOtherInfoView( 'mistaken tickets','${def.Word().mistakenTickets[dm.language]}:', widget.rd.sumIncompleteTicket ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                              );
+                            }
                           ),
-                          Container(
-                            height: MediaQuery.of(context).size.height * 0.06,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: Colors.blueAccent,
-                              borderRadius: BorderRadius.vertical(
-                                top: Radius.circular(8.0),
-                              ),
+                          FutureBuilder<int>(
+                            future: _getLanguage(),
+                            builder: (context, snapshotLaunguage) {
+                              return Container(
+                                height: MediaQuery.of(context).size.height * 0.06,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent,
+                                  borderRadius: BorderRadius.vertical(
+                                    top: Radius.circular(8.0),
+                                  ),
 
-                            ),
-                            child: Row(
-                              children: [
-                                _buildTitle( def.Word().no[dm.language] , 1.0 ),
-                                _buildTitle( def.Word().playerName[dm.language] , 4.0 ),
-                                Row(
+                                ),
+                                child: !snapshotLaunguage.hasData
+                                    ? Container()
+                                    : Row(
                                   children: [
-                                    _buildTitle( def.Word().fin2[dm.language] , 1.0 ),
-                                    _buildTitle( def.Word().rem[dm.language] , 1.0 ),
-                                    _buildTitle( def.Word().miss[dm.language] , 1.0 ),
-                                    _buildTitle( def.Word().pt[dm.language] , 2.0 ),
+                                    _buildTitle( def.Word().no[snapshotLaunguage.data] , 1.0 ),
+                                    _buildTitle( def.Word().playerName[snapshotLaunguage.data] , 4.0 ),
+                                    Row(
+                                      children: [
+                                        _buildTitle( def.Word().fin2[snapshotLaunguage.data] , 1.0 ),
+                                        _buildTitle( def.Word().rem[snapshotLaunguage.data] , 1.0 ),
+                                        _buildTitle( def.Word().miss[snapshotLaunguage.data] , 1.0 ),
+                                        _buildTitle( def.Word().pt[snapshotLaunguage.data] , 2.0 ),
+                                      ],
+                                    ),
                                   ],
                                 ),
-                              ],
-                            ),
+                              );
+                            }
                           ),
                           Expanded(
                             child: Container(
@@ -503,19 +590,31 @@ class _FightDetailState extends State<FightDetail> {
                               child: widget.rd.playerDataList.length == 0
                                   ? Container(
                                 alignment: Alignment.topCenter,
-                                child: IconButton(
-                                  icon: Icon(Icons.add_circle_outline),
-                                  onPressed: (){
-                                    _addPlayerDataItem('${def.Word().player[dm.language]}1');
-                                  },
+                                child: FutureBuilder<int>(
+                                  future: _getLanguage(),
+                                  builder: (context, snapshotLanguage) {
+                                    return !snapshotLanguage.hasData ? Container() : IconButton(
+                                      icon: Icon(Icons.add_circle_outline),
+                                      onPressed: (){
+                                        _addPlayerDataItem('${def.Word().player[snapshotLanguage.data]}1');
+                                      },
+                                    );
+                                  }
                                 ),
                               )
-                                  : ListView.builder(
-                                      itemCount: widget.rd.playerDataList.length,
-                                      itemBuilder: (BuildContext context, int index){
-                                        return _buildListItem(widget.rd.playerDataList, index);
-                                      }
-                              ),
+                                  : FutureBuilder<List<PlayerData>>(
+                                    future: _getPlayerDataItem(),
+                                    builder: (context, snapshot) {
+                                      return !snapshot.hasData
+                                          ? Container()
+                                          : ListView.builder(
+                                          itemCount: snapshot.data.length,
+                                          itemBuilder: (BuildContext context, int index){
+                                            return _buildListItem( snapshot.data, index );
+                                          }
+                              );
+                                    }
+                                  ),
                             ),
                           ),
                         ],
@@ -536,12 +635,17 @@ class _FightDetailState extends State<FightDetail> {
                               Container(
                                 padding: EdgeInsets.only( left: 8, bottom: 4 ),
                                 alignment: Alignment.bottomLeft,
-                                child: Text(
-                                  def.Word().editPlayerName[dm.language],
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                  ),
+                                child: FutureBuilder<int>(
+                                  future: _getLanguage(),
+                                  builder: (context, snapshotLanguage) {
+                                    return !snapshotLanguage.hasData ? Container() : Text(
+                                      def.Word().editPlayerName[snapshotLanguage.data],
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black,
+                                      ),
+                                    );
+                                  }
                                 ),
                               ),
                               Row(
@@ -557,32 +661,45 @@ class _FightDetailState extends State<FightDetail> {
                                             left: Radius.circular(8.0)
                                         ),
                                       ),
-                                      child: TextField(
-                                        //事前に宣言していたTextEditingController(nameCtrl）をcontrollerに代入します。
-                                        controller: playerNameCtrl,
-                                        decoration: InputDecoration(
-                                          border: InputBorder.none,
-                                          hintText: null,
-                                          errorText: _validateEditPlayerName ? def.Word().playerNameIsEmpty[dm.language] : null,
-                                          contentPadding: EdgeInsets.all(8),
-                                        ),
-                                        onTap: () => setState(() => _validateEditPlayerName = false),
-                                        //Keyboardの官僚が押された際にアイテムを追加します。
-                                        // 必要なければ省略しても構いません。
-                                        onSubmitted: (playerName) {
-                                          //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
-                                          if (playerName.isEmpty) {
-                                            setState(() {
-                                              _validateEditPlayerName = true;
-                                            });
-                                          } else {
-                                            //入力完了時の処理
-                                            setState(() {
-                                              widget.rd.playerDataList[_editPlayerNameIndex].updatePlayerData('playerName', playerName);
-                                              _offstageEditPlayerName = true;
-                                            });
-                                          }
-                                        },
+                                      child: FutureBuilder<int>(
+                                        future: _getLanguage(),
+                                        builder: (context, snapshotLanguage) {
+                                          return TextField(
+                                            //事前に宣言していたTextEditingController(nameCtrl）をcontrollerに代入します。
+                                            controller: playerNameCtrl,
+                                            decoration: InputDecoration(
+                                              border: InputBorder.none,
+                                              hintText: null,
+                                              errorText: snapshotLanguage.hasData && _validateEditPlayerName ? def.Word().playerNameIsEmpty[snapshotLanguage.data] : null,
+                                              contentPadding: EdgeInsets.all(8),
+                                            ),
+                                            onTap: () => setState(() => _validateEditPlayerName = false),
+                                            //Keyboardの官僚が押された際にアイテムを追加します。
+                                            // 必要なければ省略しても構いません。
+                                            onSubmitted: (playerName) async{
+                                              //controllerが空のときに、addListItemの処理を行わないように分岐を書きます
+                                              if (playerName.isEmpty) {
+                                                setState(() {
+                                                  _validateEditPlayerName = true;
+                                                });
+                                              } else {
+                                                //入力完了時の処理
+                                                widget.rd.playerDataList[_editPlayerNameIndex].updatePlayerData('playerName', playerName);
+                                                //##########SQLiteの操作関連ここから################
+                                                Map<String, dynamic> tmp = await dh.queryOnlyRows( dh.reportData, widget.rdId);
+                                                int editPlayerId = jsonDecode( tmp['playerDataList'] ).cast<int>()[_editPlayerNameIndex];
+                                                Map<String, dynamic> rowPlayerData = {
+                                                  'id' : editPlayerId,
+                                                  'reportTitle' : playerName,
+                                                };
+                                                await dh.update( dh.reportData, rowPlayerData );
+                                                //##########SQLiteの操作関連ここまで################
+                                                _offstageEditPlayerName = true;
+                                                setState(() {});
+                                              }
+                                            },
+                                          );
+                                        }
                                       ),
                                     ),
                                   ),
@@ -917,43 +1034,54 @@ class _FightDetailState extends State<FightDetail> {
                       ),
                       height: MediaQuery.of(context).size.height * 0.1,
                       child: GestureDetector(
-                        child: Row(
-                          children: [
-                            _buildPlayerDataView(
-                              def.Word().no[dm.language],
-                              index+1,
-                              1.0 ,
-                            ),
-                            _buildPlayerDataView(
-                              def.Word().playerName[dm.language],
-                              playerDataList[index].playerName,
-                              4.0,
-                            ),
-                            Row(
+                        child: FutureBuilder<int>(
+                          future: _getLanguage(),
+                          builder: (context, snapshot) {
+                            return !snapshot.hasData ? Container() : Row(
                               children: [
                                 _buildPlayerDataView(
-                                  def.Word().fin2[dm.language],
-                                  _countConsumedTicket( playerDataList[index] ),
-                                  1.0,
+                                  def.Word().no[snapshot.data],
+                                  index+1,
+                                  1.0 ,
                                 ),
                                 _buildPlayerDataView(
-                                  def.Word().rem[dm.language],
-                                  _countRemainingTicket( playerDataList[index] ),
-                                  1.0,
+                                  def.Word().playerName[snapshot.data],
+                                  playerDataList[index].playerName,
+                                  4.0,
                                 ),
-                                _buildPlayerDataView(
-                                  def.Word().miss[dm.language],
-                                  _countIncompleteTicket( playerDataList[index] ),
-                                  1.0,
-                                ),
-                                _buildPlayerDataView(
-                                  def.Word().pt[dm.language],
-                                  _countGetPoint( playerDataList[index] ),
-                                  2.0,
+                                FutureBuilder<List<PlayerData>>(
+                                  future: _getPlayerDataItem(),
+                                  builder: (context, snapshotPd) {
+                                    print( snapshotPd.data );
+                                    return Row(
+                                      children: [
+                                        !snapshotPd.hasData ? Container() : _buildPlayerDataView(
+                                          def.Word().fin2[snapshot.data],
+                                          _countConsumedTicket( snapshotPd.data[index] ),
+                                          1.0,
+                                        ),
+                                        !snapshotPd.hasData ? Container() : _buildPlayerDataView(
+                                          def.Word().rem[snapshot.data],
+                                          _countRemainingTicket( snapshotPd.data[index] ),
+                                          1.0,
+                                        ),
+                                        !snapshotPd.hasData ? Container() : _buildPlayerDataView(
+                                          def.Word().miss[snapshot.data],
+                                          _countIncompleteTicket( snapshotPd.data[index] ),
+                                          1.0,
+                                        ),
+                                        !snapshotPd.hasData ? Container() : _buildPlayerDataView(
+                                          def.Word().pt[snapshot.data],
+                                          _countGetPoint( snapshotPd.data[index] ),
+                                          2.0,
+                                        ),
+                                      ],
+                                    );
+                                  }
                                 ),
                               ],
-                            ),
-                          ],
+                            );
+                          }
                         ),
                         onTap: (){
                           _viewPlayerData( playerDataList[index] );
@@ -963,32 +1091,42 @@ class _FightDetailState extends State<FightDetail> {
 
                     //右にスライドした時
                     actions: [
-                      IconSlideAction(
-                        caption: def.Word().editPlayerName[dm.language],
-                        color: Colors.grey[200].withOpacity(0.0),
-                        icon: Icons.edit_outlined,
-                        onTap: () {
-                          //プレイヤー名編集の処理
-                          setState(() {
-                            setIndex(index);
-                            //レポート名編集用のテキストフィールドに初期値（もともとのレポート名）を設定
-                            playerNameCtrl = TextEditingController(
-                              text: playerDataList[index].playerName,
-                            );
-                            _offstageEditPlayerName = false;
-                          });
-                        },
+                      FutureBuilder<int>(
+                        future: _getLanguage(),
+                        builder: (context, snapshot) {
+                          return IconSlideAction(
+                            caption: !snapshot.hasData ? '' : def.Word().editPlayerName[snapshot.data],
+                            color: Colors.grey[200].withOpacity(0.0),
+                            icon: Icons.edit_outlined,
+                            onTap: () {
+                              //プレイヤー名編集の処理
+                              setState(() {
+                                setIndex(index);
+                                //レポート名編集用のテキストフィールドに初期値（もともとのレポート名）を設定
+                                playerNameCtrl = TextEditingController(
+                                  text: playerDataList[index].playerName,
+                                );
+                                _offstageEditPlayerName = false;
+                              });
+                            },
+                          );
+                        }
                       ),
                     ],
                     //左にスライドした時
                     secondaryActions: [
-                      IconSlideAction(
-                        caption: def.Word().delete[dm.language],
-                        color: Colors.red,
-                        icon: Icons.delete,
-                        onTap: () {
-                          _removePlayerDataItem( playerDataList[index] );
-                        },
+                      FutureBuilder<int>(
+                        future: _getLanguage(),
+                        builder: (context, snapshot) {
+                          return IconSlideAction(
+                            caption: !snapshot.hasData ? '' : def.Word().delete[snapshot.data],
+                            color: Colors.red,
+                            icon: Icons.delete,
+                            onTap: () {
+                              _removePlayerDataItem( playerDataList[index] );
+                            },
+                          );
+                        }
                       ),
                     ],
                   ),
@@ -1006,13 +1144,18 @@ class _FightDetailState extends State<FightDetail> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Container(
-                    child: IconButton(
-                      icon: Icon(Icons.add_circle_outline),
-                      onPressed: (){
-                        _addPlayerDataItem('${def.Word().player[dm.language]}${playerDataList.length+1}');
-                      },
-                    ),
+                  FutureBuilder<int>(
+                    future: _getLanguage(),
+                    builder: (context, snapshot) {
+                      return !snapshot.hasData ? Container() : Container(
+                        child: IconButton(
+                          icon: Icon(Icons.add_circle_outline),
+                          onPressed: (){
+                            _addPlayerDataItem('${def.Word().player[snapshot.data]}${playerDataList.length+1}');
+                          },
+                        ),
+                      );
+                    }
                   ),
                 ],
               ),
